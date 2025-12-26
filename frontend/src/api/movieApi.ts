@@ -151,11 +151,12 @@ export const postRecommendations = async (filters: {
 // ============================================================
 
 // [용도] 영화 추천 v2 - 시간 맞춤 조합 반환
-// [사용법] const result = await postRecommendationsV2({ time: "02:30", genres: ["SF"], excludeAdult: true });
+// [사용법] const result = await postRecommendationsV2({ time: "02:30", genres: ["SF"], excludeAdult: true, excludedIds: [123, 456] });
 export const postRecommendationsV2 = async (filters: {
     time: string;      // "HH:MM" 형식
     genres: string[];  // 장르 이름 배열
     excludeAdult?: boolean;
+    excludedIds?: number[];  // 제외할 영화 ID (이전 추천 영화 등)
 }): Promise<RecommendResponseV2> => {
     try {
         // 시간 변환: "02:30" -> 150분
@@ -165,7 +166,8 @@ export const postRecommendationsV2 = async (filters: {
         const response = await axiosInstance.post<RecommendResponseV2>("/api/v2/recommend", {
             runtime_limit: runtimeLimit,
             genres: filters.genres,
-            exclude_adult: filters.excludeAdult ?? true
+            exclude_adult: filters.excludeAdult ?? true,
+            excluded_ids: filters.excludedIds || []
         });
 
         console.log('[V2 API] 추천 결과:', {

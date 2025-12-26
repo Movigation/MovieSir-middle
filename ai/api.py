@@ -60,7 +60,24 @@ def health():
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "model_loaded": recommender is not None, "version": "v2"}
+    history_size = len(recommender.recommendation_history) if recommender else 0
+    return {
+        "status": "healthy",
+        "model_loaded": recommender is not None,
+        "version": "v2",
+        "history_size": history_size
+    }
+
+
+@app.post("/clear_history")
+def clear_history():
+    """추천 히스토리 초기화 (관리용)"""
+    if recommender is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    old_size = len(recommender.recommendation_history)
+    recommender.clear_history()
+    return {"message": "History cleared", "old_size": old_size, "new_size": 0}
 
 
 # ==================== Request/Response Models ====================
@@ -71,6 +88,7 @@ class RecommendRequest(BaseModel):
     preferred_genres: Optional[List[str]] = None
     preferred_otts: Optional[List[str]] = None
     allow_adult: bool = False
+    excluded_ids: Optional[List[int]] = None  # 제외할 영화 ID (이전 추천 영화 등)
 
 
 class RecommendSingleRequest(BaseModel):
@@ -128,7 +146,8 @@ def recommend(request: RecommendRequest):
             available_time=request.available_time,
             preferred_genres=request.preferred_genres,
             preferred_otts=request.preferred_otts,
-            allow_adult=request.allow_adult
+            allow_adult=request.allow_adult,
+            excluded_ids=request.excluded_ids or []
         )
 
         # numpy 타입 변환

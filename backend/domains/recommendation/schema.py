@@ -12,6 +12,7 @@ class RecommendationRequest(BaseModel):
     runtime_limit: int = 120
     genres: List[str] = []
     exclude_adult: bool = True
+    excluded_ids: List[int] = []  # 제외할 영화 ID (이전 추천 영화 등)
 
 
 class ReRecommendRequest(BaseModel):

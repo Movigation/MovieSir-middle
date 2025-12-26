@@ -79,7 +79,10 @@ export const useMovieStore = create<MovieState>((set, get) => ({
 
     setUserId: (userId) => set({ userId }),
 
-    setTime: (time) => set((state) => ({ filters: { ...state.filters, time } })),
+    setTime: (time) => set((state) => ({
+        filters: { ...state.filters, time },
+        excludedIds: []  // 시간 변경 시 중복 제외 목록 초기화
+    })),
 
     toggleGenre: (genre) =>
         set((state) => ({
@@ -88,7 +91,8 @@ export const useMovieStore = create<MovieState>((set, get) => ({
                 genres: state.filters.genres.includes(genre)
                     ? state.filters.genres.filter((g) => g !== genre)
                     : [...state.filters.genres, genre]
-            }
+            },
+            excludedIds: []  // 장르 변경 시 중복 제외 목록 초기화
         })),
 
     toggleExcludeAdult: () =>
@@ -96,17 +100,19 @@ export const useMovieStore = create<MovieState>((set, get) => ({
             filters: {
                 ...state.filters,
                 excludeAdult: !state.filters.excludeAdult
-            }
+            },
+            excludedIds: []  // 성인 제외 변경 시 중복 제외 목록 초기화
         })),
 
 
 
     // [함수] 백엔드 API로 추천 영화 로드 (V2 API)
     loadRecommended: async () => {
-        const { filters } = get();
+        const { filters, excludedIds } = get();
 
         console.log('=== loadRecommended V2 호출 ===');
         console.log('filters:', filters);
+        console.log('excludedIds:', excludedIds.length, '개');
 
         set({ isLoading: true, error: null });
         try {
@@ -114,7 +120,8 @@ export const useMovieStore = create<MovieState>((set, get) => ({
             const result = await postRecommendationsV2({
                 time: filters.time,
                 genres: filters.genres,
-                excludeAdult: filters.excludeAdult
+                excludeAdult: filters.excludeAdult,
+                excludedIds: excludedIds  // 이전 추천 영화 제외
             });
 
             console.log('V2 API 응답:', result);
@@ -123,15 +130,19 @@ export const useMovieStore = create<MovieState>((set, get) => ({
             const trackAMovies = result.track_a.movies.map(convertV2MovieToMovie);
             const trackBMovies = result.track_b.movies.map(convertV2MovieToMovie);
 
-            // 모든 영화 ID를 excludedIds에 추가 (재추천 시 제외용)
-            const allMovieIds = [
+            // 새로 추천된 영화 ID를 기존 excludedIds에 추가 (중복 제거, 최대 200개)
+            const newMovieIds = [
                 ...result.track_a.movies.map(m => m.tmdb_id),
                 ...result.track_b.movies.map(m => m.tmdb_id)
             ];
+            const allExcludedIds = [...new Set([...excludedIds, ...newMovieIds])];
+            // 최대 200개로 제한 (오래된 것부터 삭제)
+            const updatedExcludedIds = allExcludedIds.slice(-200);
 
             console.log('📦 V2 API 응답 데이터:');
             console.log('  - Track A:', result.track_a.label, '-', trackAMovies.length, '편,', result.track_a.total_runtime, '분');
             console.log('  - Track B:', result.track_b.label, '-', trackBMovies.length, '편,', result.track_b.total_runtime, '분');
+            console.log('  - excludedIds:', excludedIds.length, '→', updatedExcludedIds.length, '개');
 
             set({
                 // Track A
@@ -144,8 +155,8 @@ export const useMovieStore = create<MovieState>((set, get) => ({
                 trackBTotalRuntime: result.track_b.total_runtime,
                 trackBLabel: result.track_b.label,
 
-                // 재추천용
-                excludedIds: allMovieIds,
+                // 재추천용 (기존 + 새로운 영화 ID 누적)
+                excludedIds: updatedExcludedIds,
 
                 // 하위 호환 (기존 UI 지원)
                 recommendedMovies: trackAMovies,
