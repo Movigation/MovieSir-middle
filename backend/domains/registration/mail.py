@@ -33,8 +33,8 @@ def _get_email_html(code: str) -> str:
                     <!-- 헤더 -->
                     <tr>
                         <td style="padding:40px 40px 30px; text-align:center; border-bottom:1px solid #f0f0f0;">
-                            <img src="https://moviesir.cloud/favicon.svg" alt="MovieSir" width="48" height="48" style="display:block; margin:0 auto 15px;">
-                            <h1 style="margin:0; font-size:28px; font-weight:700; color:#E50914;">MovieSir</h1>
+                            <img src="https://moviesir.cloud/moviesir-logo.png" alt="MovieSir" width="120" style="display:block; margin:0 auto 15px;">
+                            <h1 style="margin:0; font-size:28px; font-weight:700; color:#2563EB;">MovieSir</h1>
                         </td>
                     </tr>
                     <!-- 본문 -->
@@ -48,9 +48,9 @@ def _get_email_html(code: str) -> str:
                                 아래 인증 코드를 입력하여 회원가입을 완료해주세요.
                             </p>
                             <!-- 인증 코드 박스 -->
-                            <div style="background-color:#fafafa; border:2px solid #E50914; border-radius:8px; padding:25px; text-align:center; margin:0 0 30px;">
+                            <div style="background-color:#f0f7ff; border:2px solid #2563EB; border-radius:8px; padding:25px; text-align:center; margin:0 0 30px;">
                                 <p style="margin:0 0 10px; font-size:14px; color:#999999;">인증 코드</p>
-                                <p style="margin:0; font-size:36px; font-weight:700; letter-spacing:8px; color:#E50914;">
+                                <p style="margin:0; font-size:36px; font-weight:700; letter-spacing:8px; color:#2563EB;">
                                     {code}
                                 </p>
                             </div>
