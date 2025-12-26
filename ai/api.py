@@ -60,24 +60,11 @@ def health():
 
 @app.get("/health")
 def health_check():
-    history_size = len(recommender.recommendation_history) if recommender else 0
     return {
         "status": "healthy",
         "model_loaded": recommender is not None,
-        "version": "v2",
-        "history_size": history_size
+        "version": "v2"
     }
-
-
-@app.post("/clear_history")
-def clear_history():
-    """추천 히스토리 초기화 (관리용)"""
-    if recommender is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-
-    old_size = len(recommender.recommendation_history)
-    recommender.clear_history()
-    return {"message": "History cleared", "old_size": old_size, "new_size": 0}
 
 
 # ==================== Request/Response Models ====================

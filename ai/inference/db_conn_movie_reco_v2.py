@@ -92,10 +92,6 @@ class HybridRecommenderV2:
         print("Pre-aligning models...")
         self._align_models()
 
-        # 4. 추천 히스토리 (중복 방지용) - 서버 레벨 캐시
-        self.recommendation_history = set()  # set으로 변경 (O(1) 조회)
-        self.max_history_size = 500  # 최대 히스토리 크기
-
         print(f"Initialization complete. Target movies: {len(self.common_movie_ids)}")
 
     def _load_metadata_from_db(self):
@@ -250,22 +246,6 @@ class HybridRecommenderV2:
             np.linalg.norm(self.target_sbert_matrix, axis=1, keepdims=True) + 1e-10
         )
 
-    def _add_to_history(self, movie_id: int):
-        """히스토리에 영화 추가 (크기 제한 관리)"""
-        self.recommendation_history.add(movie_id)
-
-        # 크기 초과 시 절반 정리 (랜덤)
-        if len(self.recommendation_history) > self.max_history_size:
-            history_list = list(self.recommendation_history)
-            random.shuffle(history_list)
-            self.recommendation_history = set(history_list[:self.max_history_size // 2])
-            print(f"  [History] Cleaned: {len(history_list)} → {len(self.recommendation_history)}")
-
-    def clear_history(self):
-        """히스토리 초기화 (필요 시 호출)"""
-        self.recommendation_history.clear()
-        print("  [History] Cleared")
-
     def _get_user_profile(self, user_movie_ids: List[int]):
         """사용자 프로필 벡터 생성"""
         # SBERT 프로필
@@ -400,8 +380,6 @@ class HybridRecommenderV2:
         movie_scores = []
         for i, (mid, _) in enumerate(filtered_indices):
             if mid in exclude_ids:
-                continue
-            if mid in self.recommendation_history:  # set이므로 O(1) 조회
                 continue
 
             # 모델 점수 (가중 합)
@@ -641,11 +619,6 @@ class HybridRecommenderV2:
             'total_runtime': combo_a['total_runtime'] if combo_a else 0
         }
 
-        # 히스토리에 추가 (크기 제한 관리)
-        if combo_a:
-            for m in combo_a['movies']:
-                self._add_to_history(m['tmdb_id'])
-
         # ===== Track B: 2000년 이상만 (장르/OTT 무시) =====
         filtered_b = self._apply_filters(
             self.common_movie_ids,
@@ -678,11 +651,6 @@ class HybridRecommenderV2:
             'movies': combo_b['movies'] if combo_b else [],
             'total_runtime': combo_b['total_runtime'] if combo_b else 0
         }
-
-        # 히스토리에 추가 (크기 제한 관리)
-        if combo_b:
-            for m in combo_b['movies']:
-                self._add_to_history(m['tmdb_id'])
 
         elapsed = time.time() - start_time
         print(f"Elapsed: {elapsed:.2f}s")
@@ -769,14 +737,12 @@ class HybridRecommenderV2:
         if candidates:
             # 랜덤 선택
             selected = random.choice(candidates)
-            self._add_to_history(selected['tmdb_id'])
             return selected
 
         # 조건에 맞는 영화 없으면 런타임 이하 중 가장 가까운 영화
         under_time = [m for m in top_100 if 0 < m['runtime'] <= max_runtime]
         if under_time:
             closest = max(under_time, key=lambda m: m['runtime'])
-            self._add_to_history(closest['tmdb_id'])
             return closest
 
         return None
