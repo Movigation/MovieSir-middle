@@ -619,7 +619,7 @@ class HybridRecommenderV2:
             'total_runtime': combo_a['total_runtime'] if combo_a else 0
         }
 
-        # ===== Track B: 2000년 이상만 (장르/OTT 무시) - 완전 랜덤 =====
+        # ===== Track B: 2000년 이상만 (장르/OTT 무시) =====
         filtered_b = self._apply_filters(
             self.common_movie_ids,
             preferred_genres=None,
@@ -629,35 +629,26 @@ class HybridRecommenderV2:
         )
 
         # Track A에서 추천된 영화 + excluded_ids 제외
-        exclude_b = set(
+        exclude_b = list(set(
             user_movie_ids +
             excluded_ids +
             [m['tmdb_id'] for m in track_a_result['movies']]
+        ))
+
+        # 상위 500개 추출 (SBERT 70% + LightGCN 30%로 품질 확보)
+        top_500_b = self._get_top_movies(
+            user_sbert_profile, user_gcn_profile,
+            filtered_b,
+            sbert_weight=0.7,
+            lightgcn_weight=0.3,
+            top_k=500,
+            exclude_ids=exclude_b
         )
 
-        # 제외 목록 적용 후 랜덤 셔플 (점수 계산 없이)
-        filtered_b_clean = [mid for mid in filtered_b if mid not in exclude_b]
-        random.shuffle(filtered_b_clean)
-
-        # 랜덤 300개를 영화 정보로 변환
-        random_candidates_b = []
-        for mid in filtered_b_clean[:300]:
-            meta = self.metadata_map.get(mid, {})
-            if meta.get('runtime', 0) > 0:
-                random_candidates_b.append({
-                    'tmdb_id': mid,
-                    'title': meta.get('title', 'Unknown'),
-                    'runtime': meta.get('runtime', 0),
-                    'genres': meta.get('genres', []),
-                    'vote_average': meta.get('vote_average', 0),
-                    'vote_count': meta.get('vote_count', 0),
-                    'overview': meta.get('overview', ''),
-                    'release_date': meta.get('release_date', ''),
-                    'poster_path': meta.get('poster_path', ''),
-                    'score': 0  # 점수 무시
-                })
-
-        print(f"Track B random candidates: {len(random_candidates_b)} movies")
+        # 500개 중 랜덤 300개 선택 (다양성 확보)
+        random.shuffle(top_500_b)
+        random_candidates_b = top_500_b[:300]
+        print(f"Track B: top 500 → random 300 selected")
 
         combo_b = self._find_combination(random_candidates_b, available_time)
 
