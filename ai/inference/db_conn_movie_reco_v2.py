@@ -95,7 +95,7 @@ class HybridRecommenderV2:
         print(f"Initialization complete. Target movies: {len(self.common_movie_ids)}")
 
     def _load_metadata_from_db(self):
-        """DB에서 영화 메타데이터 로드 (movie_id 기준)"""
+        """DB에서 영화 메타데이터 로드"""
         print("Loading metadata from database...")
 
         query = """
@@ -107,16 +107,11 @@ class HybridRecommenderV2:
         """
         rows = self.db.execute_query(query)
 
-        self.metadata_map = {}  # movie_id -> 메타데이터
-        self.tmdb_to_movie_id = {}  # tmdb_id -> movie_id 매핑
-        self.movie_to_tmdb_id = {}  # movie_id -> tmdb_id 매핑
-
+        self.metadata_map = {}
         for row in rows:
-            movie_id = row['movie_id']
             tmdb_id = row['tmdb_id']
-
-            self.metadata_map[movie_id] = {
-                'movie_id': movie_id,
+            self.metadata_map[tmdb_id] = {
+                'movie_id': row['movie_id'],
                 'tmdb_id': tmdb_id,
                 'title': row['title'],
                 'runtime': row['runtime'] or 0,
@@ -130,9 +125,6 @@ class HybridRecommenderV2:
                 'adult': row['adult'] or False
             }
 
-            self.tmdb_to_movie_id[tmdb_id] = movie_id
-            self.movie_to_tmdb_id[movie_id] = tmdb_id
-
         # 장르 목록
         all_genres = set()
         for movie_data in self.metadata_map.values():
@@ -144,21 +136,22 @@ class HybridRecommenderV2:
         print(f"  Metadata loaded: {len(self.metadata_map):,} movies")
 
     def _load_sbert_data_from_db(self):
-        """DB에서 SBERT 임베딩 로드 (movie_id 기준)"""
+        """DB에서 SBERT 임베딩 로드"""
         print("Loading SBERT embeddings from database...")
 
         query = """
-            SELECT mv.movie_id, mv.embedding
+            SELECT mv.movie_id, m.tmdb_id, mv.embedding
             FROM movie_vectors mv
+            JOIN movies m ON mv.movie_id = m.movie_id
             ORDER BY mv.movie_id
         """
         rows = self.db.execute_query(query)
 
-        self.sbert_movie_ids = []  # movie_id 리스트
+        self.sbert_movie_ids = []
         embeddings = []
 
         for row in rows:
-            movie_id = row['movie_id']
+            tmdb_id = row['tmdb_id']
             embedding = row['embedding']
             if isinstance(embedding, str):
                 embedding = np.fromstring(embedding.strip('[]'), sep=',', dtype='float32')
@@ -167,16 +160,16 @@ class HybridRecommenderV2:
             else:
                 embedding = np.array(embedding, dtype='float32')
 
-            self.sbert_movie_ids.append(movie_id)
+            self.sbert_movie_ids.append(tmdb_id)
             embeddings.append(embedding)
 
         self.sbert_embeddings = np.array(embeddings, dtype='float32')
-        self.sbert_movie_to_idx = {mid: idx for idx, mid in enumerate(self.sbert_movie_ids)}  # movie_id -> idx
+        self.sbert_movie_to_idx = {mid: idx for idx, mid in enumerate(self.sbert_movie_ids)}
 
         print(f"  SBERT movies: {len(self.sbert_movie_ids):,}")
 
     def _load_ott_data_from_db(self):
-        """DB에서 OTT 데이터 로드 (movie_id 기준)"""
+        """DB에서 OTT 데이터 로드"""
         print("Loading OTT data from database...")
 
         ott_query = """
@@ -190,44 +183,33 @@ class HybridRecommenderV2:
         self.all_otts = [row['provider_name'] for row in ott_rows]
 
         map_query = """
-            SELECT mom.movie_id, op.provider_name
+            SELECT m.tmdb_id, op.provider_name
             FROM movie_ott_map mom
+            JOIN movies m ON mom.movie_id = m.movie_id
             JOIN ott_providers op ON mom.provider_id = op.provider_id
         """
         map_rows = self.db.execute_query(map_query)
 
-        self.movie_ott_map = {}  # movie_id -> OTT 리스트
+        self.movie_ott_map = {}
         for row in map_rows:
-            movie_id = row['movie_id']
+            tmdb_id = row['tmdb_id']
             provider_name = row['provider_name']
-            if movie_id not in self.movie_ott_map:
-                self.movie_ott_map[movie_id] = []
-            self.movie_ott_map[movie_id].append(provider_name)
+            if tmdb_id not in self.movie_ott_map:
+                self.movie_ott_map[tmdb_id] = []
+            self.movie_ott_map[tmdb_id].append(provider_name)
 
         print(f"  OTT data loaded: {len(self.movie_ott_map):,} movies")
 
     def _load_lightgcn_data(self, data_path: str):
-        """LightGCN 매핑 데이터 로드 (movie_id 기준으로 변환)"""
+        """LightGCN 매핑 데이터 로드"""
         data_path = Path(data_path)
         with open(data_path / 'id_mappings.pkl', 'rb') as f:
             mappings = pickle.load(f)
 
-        # 원본 tmdb_id 매핑 저장 (LightGCN 모델은 tmdb_id로 학습됨)
-        self.lightgcn_tmdb_to_idx = mappings['tmdb2id']
-        self.lightgcn_idx_to_tmdb = mappings['id2tmdb']
+        self.lightgcn_movie_to_idx = mappings['tmdb2id']
+        self.lightgcn_idx_to_movie = mappings['id2tmdb']
 
-        # movie_id 기준 매핑 생성 (tmdb_to_movie_id 사용)
-        self.lightgcn_movie_to_idx = {}  # movie_id -> idx
-        self.lightgcn_idx_to_movie = {}  # idx -> movie_id
-
-        for tmdb_id, idx in self.lightgcn_tmdb_to_idx.items():
-            movie_id = self.tmdb_to_movie_id.get(tmdb_id)
-            if movie_id is not None:
-                self.lightgcn_movie_to_idx[movie_id] = idx
-                self.lightgcn_idx_to_movie[idx] = movie_id
-
-        print(f"  LightGCN movies (tmdb): {len(self.lightgcn_tmdb_to_idx):,}")
-        print(f"  LightGCN movies (movie_id): {len(self.lightgcn_movie_to_idx):,}")
+        print(f"  LightGCN movies: {len(self.lightgcn_movie_to_idx):,}")
 
     def _load_lightgcn_model(self, model_path: str):
         """LightGCN 모델 로드"""
@@ -243,10 +225,9 @@ class HybridRecommenderV2:
                 self.lightgcn_item_embeddings = checkpoint['item_embedding.weight'].cpu().numpy()
 
     def _align_models(self):
-        """SBERT와 LightGCN 모델 정렬 (movie_id 기준)"""
-        # 두 모델 모두 movie_id 기준으로 교집합 계산
+        """SBERT와 LightGCN 모델 정렬"""
         common_ids = set(self.sbert_movie_to_idx.keys()) & set(self.lightgcn_movie_to_idx.keys())
-        self.common_movie_ids = sorted(list(common_ids))  # movie_id 리스트
+        self.common_movie_ids = sorted(list(common_ids))
 
         self.target_sbert_matrix = []
         self.target_lightgcn_matrix = []
@@ -266,7 +247,7 @@ class HybridRecommenderV2:
         )
 
     def _get_user_profile(self, user_movie_ids: List[int]):
-        """사용자 프로필 벡터 생성 (movie_id 기준)"""
+        """사용자 프로필 벡터 생성"""
         # SBERT 프로필
         user_sbert_vecs = []
         for mid in user_movie_ids:
@@ -407,13 +388,12 @@ class HybridRecommenderV2:
             # 평점 점수
             rating_score = self._calculate_rating_score(mid)
 
-            # 최종 점수: 모델 90% + 평점 10% (다양성 확보)
-            final_score = model_score * 0.9 + rating_score * 0.1
+            # 최종 점수: 모델 70% + 평점 30%
+            final_score = model_score * 0.7 + rating_score * 0.3
 
             meta = self.metadata_map.get(mid, {})
             movie_scores.append({
-                'movie_id': mid,  # 내부용 movie_id
-                'tmdb_id': meta.get('tmdb_id'),  # 프론트엔드용 tmdb_id
+                'tmdb_id': mid,
                 'title': meta.get('title', 'Unknown'),
                 'runtime': meta.get('runtime', 0),
                 'genres': meta.get('genres', []),
@@ -521,7 +501,7 @@ class HybridRecommenderV2:
         max_time: int,
         max_movies: int
     ) -> tuple:
-        """Greedy 방식으로 영화 채우기 (movie_id 기준)"""
+        """Greedy 방식으로 영화 채우기"""
         combo = []
         runtime = 0
         used_ids = set()
@@ -529,7 +509,7 @@ class HybridRecommenderV2:
         for movie in movies:
             if len(combo) >= max_movies:
                 break
-            movie_id = movie.get('movie_id')  # movie_id 사용
+            movie_id = movie.get('tmdb_id')
             if movie_id in used_ids:
                 continue
             if runtime + movie['runtime'] <= max_time:
@@ -549,20 +529,20 @@ class HybridRecommenderV2:
         excluded_ids: Optional[List[int]] = None
     ) -> Dict[str, Any]:
         """
-        초기 추천 - 영화 조합 반환 (movie_id 기준)
+        초기 추천 - 영화 조합 반환
 
         Args:
-            user_movie_ids: 사용자가 본 영화 movie_id 리스트
+            user_movie_ids: 사용자가 본 영화 ID 리스트
             available_time: 가용 시간 (분)
             preferred_genres: 선호 장르
             preferred_otts: 구독 OTT
             allow_adult: 성인물 허용 여부
-            excluded_ids: 제외할 movie_id 리스트 (이전 추천 영화 등)
+            excluded_ids: 제외할 영화 ID 리스트 (이전 추천 영화 등)
 
         Returns:
             {
-                'track_a': { 'label': '...', 'movies': [{movie_id, tmdb_id, ...}], 'total_runtime': int },
-                'track_b': { 'label': '...', 'movies': [{movie_id, tmdb_id, ...}], 'total_runtime': int },
+                'track_a': { 'label': '...', 'movies': [...], 'total_runtime': int },
+                'track_b': { 'label': '...', 'movies': [...], 'total_runtime': int },
                 'elapsed_time': float
             }
         """
@@ -597,7 +577,7 @@ class HybridRecommenderV2:
             filtered_a,
             sbert_weight=0.7,
             lightgcn_weight=0.3,
-            top_k=300,
+            top_k=100,
             exclude_ids=all_exclude_a
         )
         print(f"Track A top candidates: {len(top_100_a)} movies")
@@ -621,7 +601,7 @@ class HybridRecommenderV2:
                 filtered_a_relaxed,
                 sbert_weight=0.7,
                 lightgcn_weight=0.3,
-                top_k=300,
+                top_k=100,
                 exclude_ids=all_exclude_a
             )
 
@@ -648,29 +628,23 @@ class HybridRecommenderV2:
             allow_adult=allow_adult
         )
 
-        # Track A에서 추천된 영화 + excluded_ids 제외 (movie_id 기준)
+        # Track A에서 추천된 영화 + excluded_ids 제외
         exclude_b = list(set(
             user_movie_ids +
             excluded_ids +
-            [m['movie_id'] for m in track_a_result['movies']]
+            [m['tmdb_id'] for m in track_a_result['movies']]
         ))
 
-        # 상위 500개 추출 (SBERT 70% + LightGCN 30%로 품질 확보)
-        top_500_b = self._get_top_movies(
+        top_100_b = self._get_top_movies(
             user_sbert_profile, user_gcn_profile,
             filtered_b,
-            sbert_weight=0.7,
-            lightgcn_weight=0.3,
-            top_k=500,
+            sbert_weight=0.4,
+            lightgcn_weight=0.6,
+            top_k=100,
             exclude_ids=exclude_b
         )
 
-        # 500개 중 랜덤 300개 선택 (다양성 확보)
-        random.shuffle(top_500_b)
-        random_candidates_b = top_500_b[:300]
-        print(f"Track B: top 500 → random 300 selected")
-
-        combo_b = self._find_combination(random_candidates_b, available_time)
+        combo_b = self._find_combination(top_100_b, available_time)
 
         track_b_result = {
             'label': '장르 확장 추천',
@@ -698,19 +672,19 @@ class HybridRecommenderV2:
         allow_adult: bool = False
     ) -> Optional[Dict[str, Any]]:
         """
-        개별 영화 재추천 - 단일 영화 반환 (movie_id 기준)
+        개별 영화 재추천 - 단일 영화 반환
 
         Args:
-            user_movie_ids: 사용자가 본 영화 movie_id 리스트
+            user_movie_ids: 사용자가 본 영화 ID 리스트
             target_runtime: 대체할 영화의 런타임 (분)
-            excluded_ids: 이미 추천된 movie_id (제외할 영화들)
+            excluded_ids: 이미 추천된 영화 ID (제외할 영화들)
             track: 'a' 또는 'b'
             preferred_genres: 선호 장르 (Track A용)
             preferred_otts: 구독 OTT (Track A용)
             allow_adult: 성인물 허용 여부
 
         Returns:
-            { 'movie_id': int, 'tmdb_id': int, 'title': str, 'runtime': int, ... } 또는 None
+            { 'tmdb_id': int, 'title': str, 'runtime': int, ... } 또는 None
         """
         print(f"\n=== Recommend Single ===")
         print(f"Target runtime: {target_runtime} min")
@@ -750,7 +724,7 @@ class HybridRecommenderV2:
             filtered,
             sbert_weight=sbert_w,
             lightgcn_weight=lgcn_w,
-            top_k=300,
+            top_k=100,
             exclude_ids=all_exclude
         )
 
@@ -833,7 +807,7 @@ if __name__ == "__main__":
         print("\n--- Single Re-recommendation ---")
         if result['track_a']['movies']:
             first_movie = result['track_a']['movies'][0]
-            excluded = [m['movie_id'] for m in result['track_a']['movies']]
+            excluded = [m['tmdb_id'] for m in result['track_a']['movies']]
 
             single = recommender.recommend_single(
                 user_movie_ids=user_movies,

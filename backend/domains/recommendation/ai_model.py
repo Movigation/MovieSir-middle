@@ -51,35 +51,6 @@ class AIModelAdapter:
 
         return []
 
-    def _get_default_movie_ids(self) -> List[int]:
-        """시청 기록이 없을 때 사용할 기본 movie_id 리스트"""
-        try:
-            from sqlalchemy import text
-            from backend.core.db import SessionLocal
-
-            db = SessionLocal()
-            try:
-                # 인기 영화 중 랜덤 5개의 movie_id 조회
-                result = db.execute(
-                    text("""
-                        SELECT movie_id FROM movies
-                        WHERE popularity > 50 AND vote_count > 1000
-                        ORDER BY RANDOM() LIMIT 5
-                    """)
-                ).fetchall()
-
-                if result:
-                    return [row[0] for row in result]
-
-            finally:
-                db.close()
-
-        except Exception as e:
-            print(f"[AI Model] Default movie_id query error: {e}")
-
-        # DB 조회 실패 시 빈 리스트 반환 (AI 모델이 처리)
-        return []
-
     def recommend(
         self,
         user_id: str,
@@ -100,12 +71,12 @@ class AIModelAdapter:
             }
         """
         try:
-            # 사용자 시청 기록 조회 (movie_id 기준)
+            # 사용자 시청 기록 조회
             user_movie_ids = self._get_user_watched_movies(user_id)
 
             if not user_movie_ids:
                 print(f"[AI Model] No watch history for user {user_id}")
-                user_movie_ids = self._get_default_movie_ids()  # DB에서 기본값 조회
+                user_movie_ids = [550, 27205, 157336]  # 기본값
 
             payload = {
                 "user_movie_ids": user_movie_ids,
@@ -150,17 +121,16 @@ class AIModelAdapter:
         allow_adult: bool = False
     ) -> Optional[Dict[str, Any]]:
         """
-        개별 영화 재추천 - 단일 영화 반환 (movie_id 기준)
+        개별 영화 재추천 - 단일 영화 반환
 
         Returns:
-            { 'movie_id': int, 'tmdb_id': int, 'title': str, 'runtime': int, ... } 또는 None
+            { 'tmdb_id': int, 'title': str, 'runtime': int, ... } 또는 None
         """
         try:
-            # 사용자 시청 기록 조회 (movie_id 기준)
             user_movie_ids = self._get_user_watched_movies(user_id)
 
             if not user_movie_ids:
-                user_movie_ids = self._get_default_movie_ids()  # DB에서 기본값 조회
+                user_movie_ids = [550, 27205, 157336]
 
             payload = {
                 "user_movie_ids": user_movie_ids,

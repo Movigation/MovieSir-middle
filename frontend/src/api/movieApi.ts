@@ -140,7 +140,7 @@ export const postReRecommendSingle = async (request: ReRecommendRequest): Promis
 
 // [용도] RecommendedMovieV2를 프론트엔드 Movie 타입으로 변환
 export const convertV2MovieToMovie = (v2Movie: RecommendedMovieV2): Movie => ({
-    id: v2Movie.movie_id,      // ✅ movie_id 사용 (excluded_ids에 사용)
+    id: v2Movie.tmdb_id,
     tmdb_id: v2Movie.tmdb_id,  // ✅ tmdb_id 보존 (영화 상세 API에서 사용)
     title: v2Movie.title,
     genres: v2Movie.genres,
