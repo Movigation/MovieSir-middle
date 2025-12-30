@@ -16,14 +16,12 @@ import os
 """
 Hybrid Recommender v2 with PostgreSQL Database
 - SBERT + LightGCN 하이브리드 추천
-- vote_average만 반영 (vote_count 편향 제거)
-- 모델 90% + 평점 10% (블록버스터 편향 감소)
-- 후보군 확대 (300~500개) + 랜덤 샘플링
-- 런타임 정렬 제거 (긴 영화 편향 방지)
+- vote_average, vote_count 반영
+- 항상 시간 맞춤 조합 추천 (240분 제한 없음)
 - 시간 조건: 90% ~ 100% (초과 금지, 10% 미만까지 허용)
 
-Track A: 장르 + OTT + 2000년 이상 필터, SBERT 0.7 + LightGCN 0.3, top 300
-Track B: 2000년 이상만 필터, SBERT 0.7 + LightGCN 0.3, top 500 → random 300
+Track A: 장르 + OTT + 2000년 이상 필터, SBERT 0.7 + LightGCN 0.3
+Track B: 2000년 이상만 필터, SBERT 0.4 + LightGCN 0.6
 """
 
 
@@ -280,17 +278,15 @@ class HybridRecommenderV2:
         return user_sbert_profile, user_gcn_profile
 
     def _calculate_rating_score(self, movie_id: int) -> float:
-        """평점 점수 계산: vote_average만 사용 (vote_count 편향 제거)"""
+        """평점 점수 계산: (vote_average / 10) * log(vote_count + 1)"""
         meta = self.metadata_map.get(movie_id, {})
         vote_average = meta.get('vote_average', 0)
         vote_count = meta.get('vote_count', 0)
 
-        # 최소 투표수 필터 (너무 적은 투표는 신뢰도 낮음)
-        if vote_count < 100:
+        if vote_count <= 0:
             return 0.0
 
-        # vote_average만 사용 (0~1 범위로 정규화)
-        return vote_average / 10.0
+        return (vote_average / 10.0) * log(vote_count + 1)
 
     def _apply_filters(
         self,
@@ -392,8 +388,8 @@ class HybridRecommenderV2:
             # 평점 점수
             rating_score = self._calculate_rating_score(mid)
 
-            # 최종 점수: 모델 90% + 평점 10% (블록버스터 편향 감소)
-            final_score = model_score * 0.9 + rating_score * 0.1
+            # 최종 점수: 모델 70% + 평점 30%
+            final_score = model_score * 0.7 + rating_score * 0.3
 
             meta = self.metadata_map.get(mid, {})
             movie_scores.append({
@@ -443,17 +439,35 @@ class HybridRecommenderV2:
         best_combo = None
         best_runtime = 0
 
-        # 방법 1: 점수순으로 채우기 (런타임 정렬 제거 - 블록버스터 편향 방지)
-        sorted_by_score = sorted(valid_movies, key=lambda x: x.get('score', 0), reverse=True)
-        combo1, runtime1 = self._greedy_fill(sorted_by_score, max_time, max_movies)
+        # 방법 1: 런타임 내림차순으로 큰 영화부터 채우기
+        sorted_by_runtime_desc = sorted(valid_movies, key=lambda x: x['runtime'], reverse=True)
+        combo1, runtime1 = self._greedy_fill(sorted_by_runtime_desc, max_time, max_movies)
         if min_time <= runtime1 <= max_time:
-            print(f"  Found (score): {len(combo1)} movies, {runtime1}min")
+            print(f"  Found (desc): {len(combo1)} movies, {runtime1}min")
             return {'movies': combo1, 'total_runtime': runtime1}
         if runtime1 > best_runtime:
             best_combo, best_runtime = combo1, runtime1
 
-        # 방법 2: 여러 번 랜덤 시도 + 갭 채우기
-        for attempt in range(30):
+        # 방법 2: 런타임 오름차순으로 작은 영화부터 채우기
+        sorted_by_runtime_asc = sorted(valid_movies, key=lambda x: x['runtime'])
+        combo2, runtime2 = self._greedy_fill(sorted_by_runtime_asc, max_time, max_movies)
+        if min_time <= runtime2 <= max_time:
+            print(f"  Found (asc): {len(combo2)} movies, {runtime2}min")
+            return {'movies': combo2, 'total_runtime': runtime2}
+        if runtime2 > best_runtime:
+            best_combo, best_runtime = combo2, runtime2
+
+        # 방법 3: 점수순으로 채우기
+        sorted_by_score = sorted(valid_movies, key=lambda x: x.get('score', 0), reverse=True)
+        combo3, runtime3 = self._greedy_fill(sorted_by_score, max_time, max_movies)
+        if min_time <= runtime3 <= max_time:
+            print(f"  Found (score): {len(combo3)} movies, {runtime3}min")
+            return {'movies': combo3, 'total_runtime': runtime3}
+        if runtime3 > best_runtime:
+            best_combo, best_runtime = combo3, runtime3
+
+        # 방법 4: 여러 번 랜덤 시도 + 갭 채우기
+        for attempt in range(20):
             random.shuffle(valid_movies)
             combo, runtime = self._greedy_fill(valid_movies, max_time, max_movies)
 
@@ -558,17 +572,17 @@ class HybridRecommenderV2:
         # excluded_ids와 user_movie_ids 합치기
         all_exclude_a = list(set(user_movie_ids + excluded_ids))
 
-        top_300_a = self._get_top_movies(
+        top_100_a = self._get_top_movies(
             user_sbert_profile, user_gcn_profile,
             filtered_a,
             sbert_weight=0.7,
             lightgcn_weight=0.3,
-            top_k=300,
+            top_k=100,
             exclude_ids=all_exclude_a
         )
-        print(f"Track A top candidates: {len(top_300_a)} movies")
+        print(f"Track A top candidates: {len(top_100_a)} movies")
 
-        combo_a = self._find_combination(top_300_a, available_time)
+        combo_a = self._find_combination(top_100_a, available_time)
 
         # 조합이 부족하면 필터 완화해서 재시도
         if not combo_a or (combo_a and combo_a['total_runtime'] < available_time * 0.7):
@@ -582,16 +596,16 @@ class HybridRecommenderV2:
             )
             print(f"Track A relaxed: {len(filtered_a_relaxed)} movies")
 
-            top_300_a_relaxed = self._get_top_movies(
+            top_100_a_relaxed = self._get_top_movies(
                 user_sbert_profile, user_gcn_profile,
                 filtered_a_relaxed,
                 sbert_weight=0.7,
                 lightgcn_weight=0.3,
-                top_k=300,
+                top_k=100,
                 exclude_ids=all_exclude_a
             )
 
-            combo_a_relaxed = self._find_combination(top_300_a_relaxed, available_time)
+            combo_a_relaxed = self._find_combination(top_100_a_relaxed, available_time)
 
             # 완화된 결과가 더 나으면 사용
             if combo_a_relaxed:
@@ -621,26 +635,16 @@ class HybridRecommenderV2:
             [m['tmdb_id'] for m in track_a_result['movies']]
         ))
 
-        # 상위 500개 추출 후 랜덤 300개 샘플링 (다양성 확보)
-        # SBERT 70% + LightGCN 30% (LightGCN 편향 감소)
-        top_500_b = self._get_top_movies(
+        top_100_b = self._get_top_movies(
             user_sbert_profile, user_gcn_profile,
             filtered_b,
-            sbert_weight=0.7,
-            lightgcn_weight=0.3,
-            top_k=500,
+            sbert_weight=0.4,
+            lightgcn_weight=0.6,
+            top_k=100,
             exclude_ids=exclude_b
         )
 
-        # 500개 중 랜덤 300개 선택 (다양성 확보)
-        if len(top_500_b) > 300:
-            random.shuffle(top_500_b)
-            candidates_b = top_500_b[:300]
-        else:
-            candidates_b = top_500_b
-        print(f"Track B: top {len(top_500_b)} → random {len(candidates_b)} selected")
-
-        combo_b = self._find_combination(candidates_b, available_time)
+        combo_b = self._find_combination(top_100_b, available_time)
 
         track_b_result = {
             'label': '장르 확장 추천',
@@ -711,22 +715,22 @@ class HybridRecommenderV2:
                 min_year=2000,
                 allow_adult=allow_adult
             )
-            sbert_w, lgcn_w = 0.7, 0.3  # Track B도 SBERT 중심으로 변경
+            sbert_w, lgcn_w = 0.4, 0.6
 
-        # 상위 300개
+        # 상위 100개
         all_exclude = list(set(user_movie_ids + excluded_ids))
-        top_300 = self._get_top_movies(
+        top_100 = self._get_top_movies(
             user_sbert_profile, user_gcn_profile,
             filtered,
             sbert_weight=sbert_w,
             lightgcn_weight=lgcn_w,
-            top_k=300,
+            top_k=100,
             exclude_ids=all_exclude
         )
 
         # 런타임 조건에 맞는 영화 찾기
         candidates = [
-            m for m in top_300
+            m for m in top_100
             if min_runtime <= m['runtime'] <= max_runtime
         ]
 
@@ -736,7 +740,7 @@ class HybridRecommenderV2:
             return selected
 
         # 조건에 맞는 영화 없으면 런타임 이하 중 가장 가까운 영화
-        under_time = [m for m in top_300 if 0 < m['runtime'] <= max_runtime]
+        under_time = [m for m in top_100 if 0 < m['runtime'] <= max_runtime]
         if under_time:
             closest = max(under_time, key=lambda m: m['runtime'])
             return closest
