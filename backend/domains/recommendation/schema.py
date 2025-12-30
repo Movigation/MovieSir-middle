@@ -12,13 +12,13 @@ class RecommendationRequest(BaseModel):
     runtime_limit: int = 120
     genres: List[str] = []
     exclude_adult: bool = True
-    excluded_ids: List[int] = []  # 제외할 영화 ID (이전 추천 영화 등)
+    excluded_ids: List[int] = []  # 제외할 movie_id 리스트 (이전 추천 영화의 movie_id)
 
 
 class ReRecommendRequest(BaseModel):
     """개별 영화 재추천 요청"""
     target_runtime: int  # 교체할 영화의 런타임
-    excluded_ids: List[int]  # 이미 추천된 영화 ID 리스트
+    excluded_ids: List[int]  # 이미 추천된 movie_id 리스트
     track: str = "a"  # "a" 또는 "b"
     genres: List[str] = []
     exclude_adult: bool = True
@@ -51,7 +51,8 @@ class MovieInfo(BaseModel):
 
 class RecommendedMovie(BaseModel):
     """추천된 영화 (AI 응답용)"""
-    tmdb_id: int
+    movie_id: int  # 내부 movie_id (excluded_ids에 사용)
+    tmdb_id: int   # TMDB ID (프론트엔드 표시용)
     title: str
     runtime: int
     genres: List[str] = []

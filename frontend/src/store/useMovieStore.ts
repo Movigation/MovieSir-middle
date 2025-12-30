@@ -128,10 +128,10 @@ export const useMovieStore = create<MovieState>((set, get) => ({
             const trackAMovies = result.track_a.movies.map(convertV2MovieToMovie);
             const trackBMovies = result.track_b.movies.map(convertV2MovieToMovie);
 
-            // 모든 영화 ID를 excludedIds에 추가 (재추천 시 제외용)
+            // 모든 영화 ID를 excludedIds에 추가 (재추천 시 제외용) - movie_id 사용
             const allMovieIds = [
-                ...result.track_a.movies.map(m => m.tmdb_id),
-                ...result.track_b.movies.map(m => m.tmdb_id)
+                ...result.track_a.movies.map(m => m.movie_id),
+                ...result.track_b.movies.map(m => m.movie_id)
             ];
 
             console.log('📦 V2 API 응답 데이터:');
