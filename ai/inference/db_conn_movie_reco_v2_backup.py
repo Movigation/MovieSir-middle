@@ -388,8 +388,8 @@ class HybridRecommenderV2:
             # 평점 점수
             rating_score = self._calculate_rating_score(mid)
 
-            # 최종 점수: 모델 90% + 평점 10% (다양성 확보)
-            final_score = model_score * 0.9 + rating_score * 0.1
+            # 최종 점수: 모델 70% + 평점 30%
+            final_score = model_score * 0.7 + rating_score * 0.3
 
             meta = self.metadata_map.get(mid, {})
             movie_scores.append({
@@ -577,7 +577,7 @@ class HybridRecommenderV2:
             filtered_a,
             sbert_weight=0.7,
             lightgcn_weight=0.3,
-            top_k=300,
+            top_k=100,
             exclude_ids=all_exclude_a
         )
         print(f"Track A top candidates: {len(top_100_a)} movies")
@@ -601,7 +601,7 @@ class HybridRecommenderV2:
                 filtered_a_relaxed,
                 sbert_weight=0.7,
                 lightgcn_weight=0.3,
-                top_k=300,
+                top_k=100,
                 exclude_ids=all_exclude_a
             )
 
@@ -640,7 +640,7 @@ class HybridRecommenderV2:
             filtered_b,
             sbert_weight=0.4,
             lightgcn_weight=0.6,
-            top_k=300,
+            top_k=100,
             exclude_ids=exclude_b
         )
 
@@ -724,7 +724,7 @@ class HybridRecommenderV2:
             filtered,
             sbert_weight=sbert_w,
             lightgcn_weight=lgcn_w,
-            top_k=300,
+            top_k=100,
             exclude_ids=all_exclude
         )
 
