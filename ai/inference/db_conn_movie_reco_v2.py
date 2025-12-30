@@ -448,39 +448,24 @@ class HybridRecommenderV2:
         best_combo = None
         best_runtime = 0
 
-        # 방법 1: 점수순 상위 30개에서 랜덤 셔플 후 조합 (다양성 확보)
-        sorted_by_score = sorted(valid_movies, key=lambda x: x.get('score', 0), reverse=True)
-        top_candidates = sorted_by_score[:30]  # 상위 30개만 사용
-
-        # 점수순 그대로 시도
-        combo1, runtime1 = self._greedy_fill(top_candidates, max_time, max_movies)
-        if min_time <= runtime1 <= max_time:
-            print(f"  Found (score top30): {len(combo1)} movies, {runtime1}min")
-            return {'movies': combo1, 'total_runtime': runtime1}
-        if runtime1 > best_runtime:
-            best_combo, best_runtime = combo1, runtime1
-
-        # 방법 2: 상위 30개를 랜덤 셔플해서 여러 번 시도
-        for attempt in range(30):
-            shuffled = list(top_candidates)
+        # 완전 랜덤 조합 - 50회 시도
+        for attempt in range(50):
+            shuffled = list(valid_movies)
             random.shuffle(shuffled)
             combo, runtime = self._greedy_fill(shuffled, max_time, max_movies)
 
             # 갭 채우기 시도
             if runtime < max_time and len(combo) < max_movies:
                 gap = max_time - runtime
-                # 갭에 맞는 영화 찾기 (전체 후보에서)
                 used_ids = {m['tmdb_id'] for m in combo}
                 gap_fillers = [m for m in valid_movies if m['tmdb_id'] not in used_ids and m['runtime'] <= gap]
                 if gap_fillers:
-                    # 점수 높은 것 중에서 갭에 가까운 영화 선택
-                    gap_fillers.sort(key=lambda m: (-m.get('score', 0), abs(m['runtime'] - gap)))
-                    filler = gap_fillers[0]
+                    filler = random.choice(gap_fillers)
                     combo.append(filler)
                     runtime += filler['runtime']
 
             if min_time <= runtime <= max_time:
-                print(f"  Found (shuffle+fill #{attempt+1}): {len(combo)} movies, {runtime}min")
+                print(f"  Found (random #{attempt+1}): {len(combo)} movies, {runtime}min")
                 return {'movies': combo, 'total_runtime': runtime}
             if runtime > best_runtime and runtime <= max_time:
                 best_combo, best_runtime = list(combo), runtime
