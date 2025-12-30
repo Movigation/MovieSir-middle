@@ -140,20 +140,20 @@ def mark_watched(
     return {"status": "success"}
 
 
-@router.get("/api/movies/{movie_id}", response_model=schema.MovieDetailResponse)
+@router.get("/api/movies/{tmdb_id}", response_model=schema.MovieDetailResponse)
 def get_movie_detail(
-    movie_id: int,
+    tmdb_id: int,
     db: Session = Depends(get_db),
 ):
-    """영화 상세 정보 조회 (로그인 불필요)"""
+    """영화 상세 정보 조회 (로그인 불필요) - tmdb_id로 조회"""
     from backend.domains.movie.models import Movie
 
-    movie = db.query(Movie).filter(Movie.movie_id == movie_id).first()
+    movie = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
 
     if not movie:
         raise HTTPException(status_code=404, detail="Movie not found")
 
-    # OTT 정보 조회
+    # OTT 정보 조회 (내부 movie_id 사용)
     ott_rows = db.execute(
         text("""
             SELECT
@@ -164,7 +164,7 @@ def get_movie_detail(
             JOIN ott_providers p ON m.provider_id = p.provider_id
             WHERE m.movie_id = :mid
         """),
-        {"mid": movie_id}
+        {"mid": movie.movie_id}
     ).fetchall()
 
     return {
