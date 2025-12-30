@@ -397,8 +397,8 @@ class HybridRecommenderV2:
             # 평점 점수 (절대적 정규화: 0~1 범위로 변환)
             rating_score = self._calculate_rating_score(mid) / self.MAX_RATING_SCORE
 
-            # 최종 점수: 모델 70% + 평점 30% (진짜 70:30!)
-            final_score = model_score * 0.7 + rating_score * 0.3
+            # 최종 점수: 모델 90% + 평점 10% (다양성 확보)
+            final_score = model_score * 0.9 + rating_score * 0.1
 
             meta = self.metadata_map.get(mid, {})
             movie_scores.append({
@@ -554,17 +554,17 @@ class HybridRecommenderV2:
         # excluded_ids와 user_movie_ids 합치기
         all_exclude_a = list(set(user_movie_ids + excluded_ids))
 
-        top_100_a = self._get_top_movies(
+        top_candidates_a = self._get_top_movies(
             user_sbert_profile, user_gcn_profile,
             filtered_a,
             sbert_weight=0.7,
             lightgcn_weight=0.3,
-            top_k=100,
+            top_k=300,
             exclude_ids=all_exclude_a
         )
-        print(f"Track A top candidates: {len(top_100_a)} movies")
+        print(f"Track A top candidates: {len(top_candidates_a)} movies")
 
-        combo_a = self._find_combination(top_100_a, available_time)
+        combo_a = self._find_combination(top_candidates_a, available_time)
 
         # 조합이 부족하면 필터 완화해서 재시도
         if not combo_a or (combo_a and combo_a['total_runtime'] < available_time * 0.7):
@@ -578,16 +578,16 @@ class HybridRecommenderV2:
             )
             print(f"Track A relaxed: {len(filtered_a_relaxed)} movies")
 
-            top_100_a_relaxed = self._get_top_movies(
+            top_candidates_a_relaxed = self._get_top_movies(
                 user_sbert_profile, user_gcn_profile,
                 filtered_a_relaxed,
                 sbert_weight=0.7,
                 lightgcn_weight=0.3,
-                top_k=100,
+                top_k=300,
                 exclude_ids=all_exclude_a
             )
 
-            combo_a_relaxed = self._find_combination(top_100_a_relaxed, available_time)
+            combo_a_relaxed = self._find_combination(top_candidates_a_relaxed, available_time)
 
             # 완화된 결과가 더 나으면 사용
             if combo_a_relaxed:
@@ -617,16 +617,16 @@ class HybridRecommenderV2:
             [m['tmdb_id'] for m in track_a_result['movies']]
         ))
 
-        top_100_b = self._get_top_movies(
+        top_candidates_b = self._get_top_movies(
             user_sbert_profile, user_gcn_profile,
             filtered_b,
             sbert_weight=0.4,
             lightgcn_weight=0.6,
-            top_k=100,
+            top_k=300,
             exclude_ids=exclude_b
         )
 
-        combo_b = self._find_combination(top_100_b, available_time)
+        combo_b = self._find_combination(top_candidates_b, available_time)
 
         track_b_result = {
             'label': '장르 확장 추천',
@@ -699,20 +699,20 @@ class HybridRecommenderV2:
             )
             sbert_w, lgcn_w = 0.4, 0.6
 
-        # 상위 100개
+        # 상위 300개
         all_exclude = list(set(user_movie_ids + excluded_ids))
-        top_100 = self._get_top_movies(
+        top_candidates = self._get_top_movies(
             user_sbert_profile, user_gcn_profile,
             filtered,
             sbert_weight=sbert_w,
             lightgcn_weight=lgcn_w,
-            top_k=100,
+            top_k=300,
             exclude_ids=all_exclude
         )
 
         # 런타임 조건에 맞는 영화 찾기
         candidates = [
-            m for m in top_100
+            m for m in top_candidates
             if min_runtime <= m['runtime'] <= max_runtime
         ]
 
@@ -722,7 +722,7 @@ class HybridRecommenderV2:
             return selected
 
         # 조건에 맞는 영화 없으면 런타임 이하 중 가장 가까운 영화
-        under_time = [m for m in top_100 if 0 < m['runtime'] <= max_runtime]
+        under_time = [m for m in top_candidates if 0 < m['runtime'] <= max_runtime]
         if under_time:
             closest = max(under_time, key=lambda m: m['runtime'])
             return closest
